@@ -408,7 +408,7 @@ function App() {
             </div>}
           </section>
 
-          {source === 'loading' && <div className="data-banner loading-banner"><span className="spinner" /> Connecting to your monitoring network…</div>}
+          {source === 'loading' && <div className="data-banner loading-banner"><span className="spinner" /> Loading dashboard data…</div>}
           {source === 'demo' && <div className="data-banner demo-banner"><div><CircleHelp size={17} /><span><strong>Demo data</strong> — live monitoring API is unavailable{error ? ` (${error})` : ''}. Showing sample operational data, not live readings.</span></div><button onClick={() => loadDashboard(true)}>Retry connection <ChevronRight size={14} /></button></div>}
           {source === 'live' && <div className="live-indicator"><span className="status-dot" /> API connected <span className="live-separator">·</span> Synthetic dataset, not a live sensor feed</div>}
 
@@ -553,7 +553,7 @@ function App() {
               actionNotice={actionNotice}
             />
           )}
-          <footer className="page-footer"><span>© 2026 CryoNexa · Cold-chain operations</span><span><span className={`footer-dot ${source}`} />{source === 'live' ? 'API connected' : source === 'demo' ? 'Demo data mode' : 'Connecting'}<span className="footer-divider" />v1.0.0</span></footer>
+          <footer className="page-footer"><span>© 2026 CryoNexa · Cold-chain operations</span><span><span className={`footer-dot ${source}`} />{source === 'live' ? 'API connected' : source === 'demo' ? 'Demo data mode' : 'Loading data'}<span className="footer-divider" />v1.0.0</span></footer>
         </div>
       </main>
       {selectedRecord && <RecordDialog title={selectedRecord.title} record={selectedRecord.record} view={selectedRecord.view} onClose={() => setSelectedRecord(null)} />}
