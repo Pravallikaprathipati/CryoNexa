@@ -386,7 +386,7 @@ function App() {
           <button className="icon-btn menu-toggle" aria-label="Open menu" onClick={() => setMobileNav(true)}><Menu size={20} /></button>
           <div className="breadcrumbs"><button onClick={() => navigate('Overview')}>Operations</button><ChevronRight size={14} /><strong>{activeView}</strong></div>
           <div className="topbar-right">
-            <div className="system-status"><span className="status-dot" /> {metrics.open_excursions ? 'Exceptions need review' : 'Monitoring active'}</div>
+            <div className="system-status"><span className="status-dot" /> {source === 'loading' ? 'Loading monitoring data' : metrics.open_excursions ? 'Exceptions need review' : 'Monitoring active'}</div>
             <button className="icon-btn top-icon" aria-label="Search excursions" onClick={() => navigate('Excursions')}><Search size={18} /></button>
             <button className="icon-btn top-icon notification-button" aria-label="Notifications" onClick={() => navigate('Notifications')}><Bell size={18} /><i /></button>
             <div className="top-divider" />
@@ -419,11 +419,11 @@ function App() {
               <span className="synthetic-tag">SIMULATED READINGS</span>
             </div>
             <div className="recent-window-metrics">
-              <SnapshotMetric label="Readings" value={formatNumber(recent24h.readings)} detail="in selected window" icon={Activity} />
-              <SnapshotMetric label="Sensors reporting" value={formatNumber(recent24h.sensors_reporting)} detail={`${formatNumber(recent24h.shipments_monitored)} journeys`} icon={PackageCheck} />
-              <SnapshotMetric label="Average temperature" value={recent24h.average_temperature_c == null ? '—' : `${recent24h.average_temperature_c}°C`} detail={recent24h.minimum_temperature_c == null ? 'No readings' : `${recent24h.minimum_temperature_c}°C to ${recent24h.maximum_temperature_c}°C`} icon={Thermometer} />
-              <SnapshotMetric label="Average humidity" value={recent24h.average_humidity_pct == null ? '—' : `${recent24h.average_humidity_pct}%`} detail={`${formatNumber(recent24h.flagged_readings)} ${recent24h.flagged_readings === 1 ? 'flag' : 'flags'} · ${formatNumber(recent24h.data_gaps)} ${recent24h.data_gaps === 1 ? 'gap' : 'gaps'}`} icon={Waves} />
-              <SnapshotMetric label="Excursions" value={formatNumber(recent24h.excursions)} detail={`${recent24h.compliance_rate ?? '—'}% in product range`} icon={AlertTriangle} />
+              <SnapshotMetric label="Readings" value={formatNumber(recent24h.readings)} detail="in selected window" icon={Activity} loading={source === 'loading'} />
+              <SnapshotMetric label="Sensors reporting" value={formatNumber(recent24h.sensors_reporting)} detail={`${formatNumber(recent24h.shipments_monitored)} journeys`} icon={PackageCheck} loading={source === 'loading'} />
+              <SnapshotMetric label="Average temperature" value={recent24h.average_temperature_c == null ? '—' : `${recent24h.average_temperature_c}°C`} detail={recent24h.minimum_temperature_c == null ? 'No readings' : `${recent24h.minimum_temperature_c}°C to ${recent24h.maximum_temperature_c}°C`} icon={Thermometer} loading={source === 'loading'} />
+              <SnapshotMetric label="Average humidity" value={recent24h.average_humidity_pct == null ? '—' : `${recent24h.average_humidity_pct}%`} detail={`${formatNumber(recent24h.flagged_readings)} ${recent24h.flagged_readings === 1 ? 'flag' : 'flags'} · ${formatNumber(recent24h.data_gaps)} ${recent24h.data_gaps === 1 ? 'gap' : 'gaps'}`} icon={Waves} loading={source === 'loading'} />
+              <SnapshotMetric label="Excursions" value={formatNumber(recent24h.excursions)} detail={`${recent24h.compliance_rate ?? '—'}% in product range`} icon={AlertTriangle} loading={source === 'loading'} />
             </div>
             <p className="window-explainer">Window is anchored to the newest available recorded reading. Averages combine product journeys; use each shipment’s policy range to assess its readings.</p>
           </section>
@@ -444,26 +444,26 @@ function App() {
               <div className="chart-wrap">
                 {dashboard?.trend?.length
                   ? <TrendChart data={dashboard.trend} />
-                  : <EmptyState text="Temperature and humidity trends will appear when readings are available." />}
+                  : <EmptyState text={source === 'loading' ? 'Loading temperature and humidity trends…' : 'Temperature and humidity trends will appear when readings are available.'} />}
               </div>
-              <div className="chart-footnote"><span><Waves size={14} /> {formatNumber(recent24h.readings)} readings · hourly averages</span><span><Clock3 size={13} /> Through {utcLabel(recent24h.window_end)}</span></div>
+              <div className="chart-footnote"><span><Waves size={14} /> {source === 'loading' ? '—' : formatNumber(recent24h.readings)} readings · hourly averages</span><span><Clock3 size={13} /> Through {utcLabel(recent24h.window_end)}</span></div>
             </article>
             <article className="panel excursion-panel">
               <div className="panel-header">
                 <div><h2>Excursion overview</h2><p>Open exceptions by severity</p></div>
               </div>
-              <div className="severity-total"><strong>{formatNumber(metrics.open_excursions)}</strong><span>open excursions</span><span className="severity-period">by severity</span></div>
+              <div className="severity-total"><strong>{source === 'loading' ? '—' : formatNumber(metrics.open_excursions)}</strong><span>open excursions</span><span className="severity-period">by severity</span></div>
               <div className="severity-bars">
                 {['Critical', 'High', 'Medium'].map((level) => {
                   const rows = dashboard?.severity_breakdown ?? [];
                   const count = rows.find((item) => item.severity?.toLowerCase() === level.toLowerCase())?.count ?? 0;
                   const max = Math.max(1, ...rows.map((item) => item.count ?? 0));
-                  return <div className="severity-row" key={level}><div className="severity-label"><span className={`severity-dot ${level.toLowerCase()}`} />{level}<b>{count}</b></div><div className="severity-track"><span className={`severity-fill ${level.toLowerCase()}`} style={{ width: `${Math.max(count ? 9 : 0, (count / max) * 100)}%` }} /></div></div>;
+                  return <div className="severity-row" key={level}><div className="severity-label"><span className={`severity-dot ${level.toLowerCase()}`} />{level}<b>{source === 'loading' ? '—' : count}</b></div><div className="severity-track"><span className={`severity-fill ${level.toLowerCase()}`} style={{ width: `${Math.max(count ? 9 : 0, (count / max) * 100)}%` }} /></div></div>;
                 })}
               </div>
               <div className="excursion-divider" />
-              <div className="small-stat-row"><span><span className="tiny-indicator red" /> Flagged data gaps</span><strong>{formatNumber(metrics.flagged_gaps)}</strong></div>
-              <div className="small-stat-row"><span><span className="tiny-indicator green" /> Within safe range</span><strong>{metrics.compliance_rate ?? '—'}%</strong></div>
+              <div className="small-stat-row"><span><span className="tiny-indicator red" /> Flagged data gaps</span><strong>{source === 'loading' ? '—' : formatNumber(metrics.flagged_gaps)}</strong></div>
+              <div className="small-stat-row"><span><span className="tiny-indicator green" /> Within safe range</span><strong>{source === 'loading' ? '—' : `${metrics.compliance_rate ?? '—'}%`}</strong></div>
               <button className="text-link" onClick={() => navigate('Excursions')}>View excursion report <ChevronRight size={15} /></button>
             </article>
           </section>
@@ -471,7 +471,7 @@ function App() {
           <section className="bottom-grid">
             <article className="panel exceptions-panel">
               <div className="panel-header exceptions-header">
-                <div><div className="panel-title-row"><h2>Recent excursions</h2><span className="table-count">{excursions.length}</span></div><p>Temperature and humidity events requiring attention</p></div>
+                <div><div className="panel-title-row"><h2>Recent excursions</h2><span className="table-count">{source === 'loading' ? '—' : excursions.length}</span></div><p>Temperature and humidity events requiring attention</p></div>
                 <button className="text-link desktop-link" onClick={() => navigate('Excursions')}>View all excursions <ChevronRight size={15} /></button>
               </div>
               <div className="table-toolbar">
@@ -492,14 +492,14 @@ function App() {
                       <td><span className={`status-badge ${item.status?.toLowerCase().replace(/\s/g, '-')}`}>{item.status}</span></td>
                       <td><button className="row-action" aria-label={`Open ${item.id}`} onClick={() => setSelectedRecord({ title: item.id, record: item, view: 'Excursions' })}><ChevronRight size={16} /></button></td>
                     </tr>)}
-                    {!filteredExcursions.length && <tr><td colSpan="7"><EmptyState text={excursions.length ? 'No excursions match these filters.' : 'No excursions to display. Shipments are within their configured limits.'} /></td></tr>}
+                    {!filteredExcursions.length && <tr><td colSpan="7"><EmptyState text={source === 'loading' ? 'Loading recent excursions…' : excursions.length ? 'No excursions match these filters.' : 'No excursions to display. Shipments are within their configured limits.'} /></td></tr>}
                   </tbody>
                 </table>
               </div>
-              <div className="table-footer"><span>Showing <strong>{filteredExcursions.length}</strong> of <strong>{excursions.length}</strong> recent excursions</span><button className="text-link mobile-link" onClick={() => navigate('Excursions')}>View all <ChevronRight size={14} /></button><div className="pagination"><span>Recent</span></div></div>
+              <div className="table-footer"><span>Showing <strong>{source === 'loading' ? '—' : filteredExcursions.length}</strong> of <strong>{source === 'loading' ? '—' : excursions.length}</strong> recent excursions</span><button className="text-link mobile-link" onClick={() => navigate('Excursions')}>View all <ChevronRight size={14} /></button><div className="pagination"><span>Recent</span></div></div>
             </article>
             <aside className="panel action-panel">
-              <div className="panel-header action-heading"><div><h2>Action required</h2><p>Keep your shipments on track</p></div><span className="action-count">{dashboard?.actions?.length ?? 0}</span></div>
+              <div className="panel-header action-heading"><div><h2>Action required</h2><p>Keep your shipments on track</p></div><span className="action-count">{source === 'loading' ? '—' : dashboard?.actions?.length ?? 0}</span></div>
               <div className="action-list">
                 {(dashboard?.actions ?? []).slice(0, 3).map((action) => {
                   const related = excursions.find((event) => event.id === action.excursion_id);
@@ -510,7 +510,7 @@ function App() {
                     </div>
                   </div>;
                 })}
-                {!(dashboard?.actions ?? []).length && <EmptyState text="No corrective actions are currently assigned." />}
+                {!(dashboard?.actions ?? []).length && <EmptyState text={source === 'loading' ? 'Loading corrective actions…' : 'No corrective actions are currently assigned.'} />}
               </div>
               {actionError && <p className="action-error" role="alert">{actionError}</p>}
               {actionNotice && <p className="action-notice" role="status">{actionNotice}</p>}
@@ -529,7 +529,7 @@ function App() {
                 <span className={`route-status ${shipment.status?.toLowerCase().replace(/\s/g, '-')}`}><i />{shipment.status}</span>
                 <button className="row-action" aria-label={`Open shipment ${shipment.id}`} onClick={() => setSelectedRecord({ title: shipment.id, record: shipment, view: 'Shipments' })}><ChevronRight size={16} /></button>
               </div>)}
-              {!(dashboard?.shipments ?? []).length && <EmptyState text="No shipments are currently in transit." />}
+              {!(dashboard?.shipments ?? []).length && <EmptyState text={source === 'loading' ? 'Loading shipments…' : 'No shipments are currently in transit.'} />}
             </div>
             <button className="all-shipments" onClick={() => navigate('Shipments')}>View all shipments <ChevronRight size={14} /></button>
           </section>
@@ -562,7 +562,7 @@ function App() {
 }
 
 function MetricCard({ title, value, icon: Icon, color, detail, loading, onClick }) {
-  return <button className="metric-card metric-card-button" onClick={onClick}><div className="metric-top"><span>{title}</span><span className={`metric-icon ${color}`}><Icon size={17} /></span></div><div className={`metric-value ${loading ? 'skeleton-text' : ''}`}>{loading ? '—' : value}</div><div className="metric-change"><span>{detail}</span></div></button>;
+  return <button className="metric-card metric-card-button" onClick={onClick}><div className="metric-top"><span>{title}</span><span className={`metric-icon ${color}`}><Icon size={17} /></span></div><div className={`metric-value ${loading ? 'skeleton-text' : ''}`}>{loading ? '—' : value}</div><div className="metric-change"><span>{loading ? 'Loading…' : detail}</span></div></button>;
 }
 
 function DataView({ view, records, count, loading, error, page, query, searchRef, onQueryChange, onPageChange, onSelect, onNavigate, onTransitionAction, transitioningAction, actionError, actionNotice }) {
@@ -831,10 +831,10 @@ function EmptyState({ text }) {
   return <div className="empty-state"><Snowflake size={20} /><span>{text}</span></div>;
 }
 
-function SnapshotMetric({ label, value, detail, icon: Icon }) {
+function SnapshotMetric({ label, value, detail, icon: Icon, loading }) {
   return <div className="snapshot-metric">
     <div className="snapshot-icon"><Icon size={15} /></div>
-    <div className="snapshot-copy"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>
+    <div className="snapshot-copy"><span>{label}</span><strong className={loading ? 'skeleton-text' : ''}>{loading ? '—' : value}</strong><small>{loading ? 'Loading…' : detail}</small></div>
   </div>;
 }
 

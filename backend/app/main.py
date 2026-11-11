@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from app.dashboard_cache import get_dashboard_snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.environ.get("CRYONEXA_DB", ROOT / "data" / "generated" / "cryo.db"))
@@ -53,163 +55,18 @@ def health() -> dict[str, str]:
 def dashboard() -> dict[str, Any]:
     connection = connect()
     try:
-        latest_reading_at = connection.execute(
-            "SELECT MAX(recorded_at) FROM sensor_reading"
-        ).fetchone()[0]
-        if latest_reading_at:
-            latest_datetime = datetime.fromisoformat(latest_reading_at.replace("Z", "+00:00"))
-            window_start_datetime = latest_datetime - timedelta(hours=24)
-            window_start = window_start_datetime.isoformat(timespec="seconds").replace("+00:00", "Z")
-            recent = connection.execute(
-                """SELECT COUNT(*) AS readings,
-                        COUNT(DISTINCT r.sensor_id) AS sensors_reporting,
-                        COUNT(DISTINCT r.shipment_id) AS shipments_monitored,
-                        ROUND(AVG(r.temperature_c), 2) AS average_temperature_c,
-                        ROUND(MIN(r.temperature_c), 2) AS minimum_temperature_c,
-                        ROUND(MAX(r.temperature_c), 2) AS maximum_temperature_c,
-                        ROUND(AVG(r.humidity_pct), 2) AS average_humidity_pct,
-                        SUM(CASE WHEN r.quality_status != 'valid' THEN 1 ELSE 0 END) AS flagged_readings,
-                        ROUND(100.0 * SUM(CASE WHEN r.quality_status = 'valid'
-                            AND r.temperature_c BETWEEN tp.min_temperature_c AND tp.max_temperature_c
-                            AND r.humidity_pct BETWEEN tp.min_humidity_pct AND tp.max_humidity_pct
-                            AND tp.product_id = s.product_id THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2)
-                            AS compliance_rate
-                   FROM sensor_reading r
-                   JOIN shipment s ON s.id = r.shipment_id
-                   JOIN threshold_policy tp ON tp.id = r.threshold_policy_id
-                   WHERE r.recorded_at >= ? AND r.recorded_at <= ?""",
-                (window_start, latest_reading_at),
-            ).fetchone()
-            hourly_trend = fetch_all(connection,
-                """SELECT strftime('%Y-%m-%dT%H:00:00Z', r.recorded_at) AS hour,
-                        ROUND(AVG(r.temperature_c), 2) AS temperature,
-                        ROUND(AVG(r.humidity_pct), 2) AS humidity,
-                        COUNT(*) AS reading_count
-                   FROM sensor_reading r
-                   WHERE r.recorded_at >= ? AND r.recorded_at <= ?
-                   GROUP BY hour ORDER BY hour""",
-                (window_start, latest_reading_at))
-            hourly_by_bucket = {row["hour"]: row for row in hourly_trend}
-            first_bucket = window_start_datetime.replace(minute=0, second=0, microsecond=0)
-            last_bucket = latest_datetime.replace(minute=0, second=0, microsecond=0)
-            hourly_trend = []
-            while first_bucket <= last_bucket:
-                hour = first_bucket.strftime("%Y-%m-%dT%H:00:00Z")
-                row = hourly_by_bucket.get(hour)
-                hourly_trend.append({
-                    "hour": hour,
-                    "temperature": row["temperature"] if row else None,
-                    "humidity": row["humidity"] if row else None,
-                    "reading_count": row["reading_count"] if row else 0,
-                })
-                first_bucket += timedelta(hours=1)
-            recent_excursions = connection.execute(
-                """SELECT COUNT(*) FROM excursion
-                   WHERE started_at >= ? AND started_at <= ?""",
-                (window_start, latest_reading_at),
-            ).fetchone()[0]
-            recent_gaps = connection.execute(
-                """WITH window_readings AS (
-                        SELECT shipment_id, sensor_id, recorded_at FROM sensor_reading
-                        WHERE recorded_at >= ? AND recorded_at <= ?
-                    ),
-                    first_reading AS (
-                        SELECT shipment_id, sensor_id, MIN(recorded_at) AS recorded_at
-                        FROM window_readings GROUP BY shipment_id, sensor_id
-                    ),
-                    prior_readings AS (
-                        SELECT r.shipment_id, r.sensor_id, r.recorded_at
-                        FROM first_reading f
-                        JOIN sensor_reading r
-                          ON r.shipment_id = f.shipment_id AND r.sensor_id = f.sensor_id
-                         AND r.recorded_at = (
-                            SELECT MAX(previous.recorded_at) FROM sensor_reading previous
-                            WHERE previous.shipment_id = f.shipment_id
-                              AND previous.sensor_id = f.sensor_id
-                              AND previous.recorded_at < f.recorded_at
-                         )
-                    ),
-                    ordered_readings AS (
-                        SELECT shipment_id, sensor_id, recorded_at FROM prior_readings
-                        UNION ALL
-                        SELECT shipment_id, sensor_id, recorded_at FROM window_readings
-                    ),
-                    intervals AS (
-                        SELECT shipment_id, sensor_id, recorded_at,
-                            LAG(recorded_at) OVER (
-                                PARTITION BY shipment_id, sensor_id ORDER BY recorded_at
-                            ) AS previous_at
-                        FROM ordered_readings
-                    )
-                    SELECT COUNT(*) FROM intervals
-                    WHERE previous_at IS NOT NULL AND recorded_at >= ?
-                      AND (julianday(recorded_at) - julianday(previous_at)) * 1440 > 10""",
-                (window_start, latest_reading_at, window_start),
-            ).fetchone()[0]
-            recent_24h = {
-                **dict(recent),
-                "window_start": window_start,
-                "window_end": latest_reading_at,
-                "excursions": recent_excursions,
-                "data_gaps": recent_gaps,
-                "dataset_age_seconds": round(
-                    (datetime.now(timezone.utc) - latest_datetime).total_seconds()
-                ),
-            }
-        else:
-            hourly_trend = []
-            recent_24h = {
-                "readings": 0,
-                "sensors_reporting": 0,
-                "shipments_monitored": 0,
-                "average_temperature_c": None,
-                "minimum_temperature_c": None,
-                "maximum_temperature_c": None,
-                "average_humidity_pct": None,
-                "flagged_readings": 0,
-                "compliance_rate": None,
-                "window_start": None,
-                "window_end": None,
-                "excursions": 0,
-                "data_gaps": 0,
-                "dataset_age_seconds": None,
-            }
-        counts = connection.execute(
-            """SELECT
-                (SELECT COUNT(*) FROM shipment WHERE status = 'in_transit') AS active_shipments,
-                (SELECT COUNT(DISTINCT container_id) FROM shipment_container sc
-                    JOIN shipment s ON s.id = sc.shipment_id WHERE s.status = 'in_transit') AS monitored_containers,
-                (SELECT COUNT(*) FROM excursion WHERE status IN ('open', 'investigating')) AS open_excursions,
-                (SELECT COUNT(*) FROM sensor_reading) AS total_readings
-            """
-        ).fetchone()
-        compliance = connection.execute(
-            """SELECT
-                100.0 * SUM(CASE WHEN r.temperature_c BETWEEN p.min_temperature_c AND p.max_temperature_c
-                                      AND r.humidity_pct BETWEEN p.min_humidity_pct AND p.max_humidity_pct
-                                      AND p.product_id = s.product_id
-                                      AND r.quality_status = 'valid'
-                                 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)
-               FROM sensor_reading r
-               JOIN shipment s ON s.id = r.shipment_id
-               JOIN threshold_policy p ON p.id = r.threshold_policy_id"""
-        ).fetchone()[0]
-        gaps = connection.execute(
-            """WITH ordered AS (
-                SELECT shipment_id, recorded_at,
-                    LAG(recorded_at) OVER (PARTITION BY shipment_id ORDER BY recorded_at) AS previous_at
-                FROM sensor_reading
+        snapshot = get_dashboard_snapshot(connection)
+        metrics = snapshot["metrics"]
+        trend = snapshot["trend"]
+        severity = snapshot["severity_breakdown"]
+        recent_24h = dict(snapshot["recent_24h"])
+        if recent_24h["window_end"]:
+            latest_datetime = datetime.fromisoformat(recent_24h["window_end"].replace("Z", "+00:00"))
+            recent_24h["dataset_age_seconds"] = round(
+                (datetime.now(timezone.utc) - latest_datetime).total_seconds()
             )
-            SELECT COUNT(*) FROM ordered
-            WHERE previous_at IS NOT NULL
-              AND (julianday(recorded_at) - julianday(previous_at)) * 1440 > 10"""
-        ).fetchone()[0]
-        trend = hourly_trend
-        severity = fetch_all(connection,
-            """SELECT severity, COUNT(*) AS count FROM excursion
-               WHERE status IN ('open', 'investigating')
-               GROUP BY severity ORDER BY CASE severity
-                 WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END""")
+        else:
+            recent_24h["dataset_age_seconds"] = None
         excursions = fetch_all(connection,
             """SELECT e.id, e.shipment_id, p.name AS product_name, e.metric, e.unit,
                     COALESCE((SELECT rs.location FROM sensor_reading r
@@ -247,14 +104,7 @@ def dashboard() -> dict[str, Any]:
                FROM corrective_action ORDER BY CASE status WHEN 'open' THEN 0
                     WHEN 'in_progress' THEN 1 ELSE 2 END, due_at LIMIT 8""")
         return {
-            "metrics": {
-                "active_shipments": counts["active_shipments"],
-                "monitored_containers": counts["monitored_containers"],
-                "open_excursions": counts["open_excursions"],
-                "compliance_rate": round(compliance or 0, 2),
-                "total_readings": counts["total_readings"],
-                "flagged_gaps": gaps,
-            },
+            "metrics": metrics,
             "trend": trend,
             "recent_24h": recent_24h,
             "severity_breakdown": severity,
@@ -404,23 +254,22 @@ def sensors(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(d
 def compliance() -> dict[str, Any]:
     connection = connect()
     try:
+        snapshot = get_dashboard_snapshot(connection)
+        product_metrics = snapshot["compliance_by_product"]
         policies = fetch_all(connection,
             """SELECT p.id AS product_id, p.name AS product_name,
                     tp.id AS policy_id, tp.min_temperature_c, tp.max_temperature_c,
                     tp.min_humidity_pct, tp.max_humidity_pct,
-                    tp.permissible_excursion_minutes, tp.effective_from, tp.effective_to,
-                    (SELECT COUNT(*) FROM shipment s WHERE s.product_id = p.id) AS shipment_count,
-                    (SELECT COUNT(*) FROM sensor_reading r
-                        JOIN shipment s ON s.id = r.shipment_id
-                        WHERE s.product_id = p.id) AS reading_count,
-                    (SELECT COUNT(*) FROM sensor_reading r
-                        JOIN shipment s ON s.id = r.shipment_id
-                        WHERE s.product_id = p.id AND r.quality_status != 'valid') AS flagged_readings,
-                    (SELECT COUNT(*) FROM excursion e
-                        JOIN shipment s ON s.id = e.shipment_id
-                        WHERE s.product_id = p.id) AS excursion_count
+                    tp.permissible_excursion_minutes, tp.effective_from, tp.effective_to
                FROM product p JOIN threshold_policy tp ON tp.product_id = p.id
                WHERE tp.effective_to IS NULL ORDER BY p.name""")
+        for policy in policies:
+            policy.update(product_metrics.get(policy["product_id"], {
+                "shipment_count": 0,
+                "reading_count": 0,
+                "flagged_readings": 0,
+                "excursion_count": 0,
+            }))
         summary = connection.execute(
             """SELECT
                 (SELECT COUNT(*) FROM sensor WHERE calibration_status != 'calibrated') AS sensors_needing_calibration,

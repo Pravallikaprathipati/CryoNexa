@@ -163,6 +163,12 @@ CREATE TABLE IF NOT EXISTS shipment_status_event (
     actor TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS dashboard_snapshot (
+    id TEXT PRIMARY KEY CHECK (id = 'overview'),
+    source_latest_reading_at TEXT,
+    payload TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_reading_shipment_time ON sensor_reading(shipment_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_reading_recorded_at ON sensor_reading(recorded_at);
 CREATE INDEX IF NOT EXISTS idx_excursion_status ON excursion(status, started_at);

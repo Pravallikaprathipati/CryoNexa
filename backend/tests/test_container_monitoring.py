@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -71,6 +72,9 @@ class ContainerMonitoringTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM sensor_reading WHERE recorded_at >= ? AND recorded_at <= ?",
                 (expected_start, latest),
             ).fetchone()[0]
+            cached_source, cached_payload = connection.execute(
+                "SELECT source_latest_reading_at, payload FROM dashboard_snapshot WHERE id = 'overview'"
+            ).fetchone()
             readings_by_sensor = {}
             for shipment_id, sensor_id, recorded_at in connection.execute(
                 """SELECT shipment_id, sensor_id, recorded_at FROM sensor_reading
@@ -95,6 +99,8 @@ class ContainerMonitoringTests(unittest.TestCase):
                 previous = current
 
         self.assertEqual(recent["readings"], expected_count)
+        self.assertEqual(cached_source, latest)
+        self.assertEqual(json.loads(cached_payload)["recent_24h"]["readings"], expected_count)
         self.assertEqual(recent["readings"], sum(point["reading_count"] for point in dashboard["trend"]))
         self.assertGreater(len(dashboard["trend"]), 0)
         self.assertTrue(all(point["hour"].endswith(":00:00Z") for point in dashboard["trend"]))
@@ -109,6 +115,50 @@ class ContainerMonitoringTests(unittest.TestCase):
         self.assertLessEqual(abs(recent["dataset_age_seconds"] - expected_age), 2)
         self.assertGreaterEqual(recent["window_end"], recent["window_start"])
         self.assertGreaterEqual(recent["readings"], 1)
+
+    def test_compliance_reports_cached_product_counts(self):
+        result = main.compliance()
+        connection = sqlite3.connect(self.database_path)
+        try:
+            expected = connection.execute(
+                """SELECT p.id, COUNT(DISTINCT s.id),
+                        (SELECT COUNT(*) FROM sensor_reading r
+                         WHERE r.shipment_id IN (
+                            SELECT id FROM shipment WHERE product_id = p.id
+                         )),
+                        (SELECT COUNT(*) FROM sensor_reading r
+                         WHERE r.quality_status != 'valid' AND r.shipment_id IN (
+                            SELECT id FROM shipment WHERE product_id = p.id
+                         )),
+                        (SELECT COUNT(*) FROM excursion e
+                         WHERE e.shipment_id IN (
+                            SELECT id FROM shipment WHERE product_id = p.id
+                         ))
+                   FROM product p
+                   LEFT JOIN shipment s ON s.product_id = p.id
+                   GROUP BY p.id"""
+            ).fetchall()
+            cached = connection.execute(
+                "SELECT payload FROM dashboard_snapshot WHERE id = 'overview'"
+            ).fetchone()[0]
+        finally:
+            connection.close()
+
+        expected_by_product = {
+            product_id: {
+                "shipment_count": shipment_count,
+                "reading_count": reading_count,
+                "flagged_readings": flagged_readings,
+                "excursion_count": excursion_count,
+            }
+            for product_id, shipment_count, reading_count, flagged_readings, excursion_count in expected
+        }
+        self.assertEqual(
+            {item["product_id"]: {key: item[key] for key in expected_by_product[item["product_id"]]}
+             for item in result["items"]},
+            expected_by_product,
+        )
+        self.assertEqual(json.loads(cached)["compliance_by_product"], expected_by_product)
 
 
 if __name__ == "__main__":

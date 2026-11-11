@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from app.dashboard_cache import refresh_dashboard_snapshot
+
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "database" / "schema.sql"
 DEFAULT_OUTPUT = ROOT / "data" / "generated"
@@ -564,7 +566,7 @@ def persist_sqlite(path: Path, records: dict[str, list[dict[str, Any]]]) -> None
                 columns = list(rows[0])
                 query = f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})"
                 connection.executemany(query, ([row[column] for column in columns] for row in rows))
-        connection.commit()
+        refresh_dashboard_snapshot(connection)
         foreign_key_errors = connection.execute("PRAGMA foreign_key_check").fetchall()
         if foreign_key_errors:
             raise ValueError(f"SQLite foreign-key validation failed: {foreign_key_errors[:5]}")

@@ -32,7 +32,7 @@ Requirements: Python 3.11+ and Node.js 18, 20, or 22+.
    python -m app.generate --shipments 1000 --containers 300 --seed 20261022 --output ..\data\generated\full-scale-demo
    ```
 
-   The same generator and seed drive both scales. Shipments are distributed across a bounded one-day departure window and the simulation has a fixed five-day reference time, preventing larger datasets from drifting into future calendar years. To run the API against the full-scale database without replacing the starter dataset:
+   The same generator and seed drive both scales. Shipments are distributed across a bounded one-day departure window and the simulation has a fixed six-day reference time, preventing larger datasets from drifting into future calendar years. To run the API against the full-scale database without replacing the starter dataset:
 
    ```powershell
    $env:CRYONEXA_DB = (Resolve-Path ..\data\generated\full-scale-demo\cryo.db).Path
@@ -65,7 +65,7 @@ The generated database location can be overridden with `CRYONEXA_DB`; browser or
 
 The sidebar and dashboard summary cards open live, paginated views for shipments, containers, sensors, excursions, corrective actions, and product compliance. The notification bell opens the notification list; record IDs open a detail dialog, and corrective-action details include their append-only status history. Search supports `Ctrl+K`/`Cmd+K`, and dashboard list pages can be refreshed without losing their current page.
 
-The Overview includes an hourly last-24-hour temperature/humidity trend and a reading, sensor, excursion, quality, data-gap, and compliance snapshot. Its time window ends at the newest available reading in the dataset rather than the computer clock. It also shows the newest reading's UTC timestamp and age relative to the API clock, so seeded historical data is not presented as current telemetry. The overview labels synthetic data explicitly; averages across journeys are informational, while compliance is evaluated against each reading's product policy.
+The Overview includes an hourly last-24-hour temperature/humidity trend and a reading, sensor, excursion, quality, data-gap, and compliance snapshot. The generator persists these derived aggregates, including product-level compliance counts, so the overview and Compliance Center do not repeatedly scan the full reading history; older databases rebuild the snapshot automatically when its latest-reading key does not match or product aggregates are absent. The overview's time window ends at the newest available reading in the dataset rather than the computer clock. It also shows the newest reading's UTC timestamp and age relative to the API clock, so seeded historical data is not presented as current telemetry. The overview labels synthetic data explicitly; averages across journeys are informational, while compliance is evaluated against each reading's product policy.
 
 The API exposes `/api/shipments`, `/api/containers`, `/api/sensors`, `/api/excursions`, `/api/actions`, `/api/compliance`, and `/api/notifications`. List endpoints accept `limit` and `offset` query parameters and return an `items` array with the total record `count`.
 
