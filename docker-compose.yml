@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      CRYONEXA_DB: /app/data/generated/cryo.db
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    command: >
+      sh -c "python -m app.generate --shipments 36 --seed 20261022
+      --output /app/data/generated &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000"
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend

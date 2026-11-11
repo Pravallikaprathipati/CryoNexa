@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+dist/
+data/generated/*
+!data/generated/.gitkeep
+*.db
+.env
+.DS_Store
